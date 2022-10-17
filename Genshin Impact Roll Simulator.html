@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<!-- saved from url=(0036)https://genshinweaponsim.tiiny.site/ -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+	
+	<title>Genshin Impact Roll Simulator</title>
+	<link href="./Genshin Impact Roll Simulator_files/bootstrap.min.css" rel="stylesheet" integrity="sha384-eOJMYsd53ii+scO/bJGFsiCZc+5NDVN2yr8+0RDqr0Ql0h+rP48ckxlpbzKgwra6" crossorigin="anonymous">
+	<script src="./Genshin Impact Roll Simulator_files/bootstrap.bundle.min.js.ダウンロード" integrity="sha384-JEW9xMcG8R+pH31jmWH6WWP0WintQrMb4s7ZOdauHnUtxwoG2vI5DkLtS3qm9Ekf" crossorigin="anonymous"></script>
+
+	<script id="worker" type="javascript/worker">
+		self.onmessage = function(e) {
+			var rateUps5 = 0;
+			var rateUps4 = 0;
+			var others5 = 0;
+			var atLeastOne5 = 0;
+			var c4 = [0, 0, 0, 0, 0];
+			var c5 = [0, 0, 0, 0, 0];
+			for (var i = 0; i < e.data.simulations; i++) {
+				var roll = simulateOne(e.data.rolls, e.data.pityCounter4, e.data.pityCounter5, e.data.guaranteedRateUp4, e.data.guaranteedRateUp5, e.data.pathPoints);
+				rateUps5 += roll.rateUps5;
+				rateUps4 += roll.rateUps4;
+				others5 += roll.others5;
+				if (roll.rateUps5 > 0) {
+					c5[Math.min(roll.rateUps5 - 1, 4)] += 1;
+				}
+				if (roll.rateUps4 > 0) {
+					c4[Math.min(roll.rateUps4 - 1, 4)] += 1;
+				}
+				if (roll.rateUps5 + roll.others5 > 0) {
+					atLeastOne5++;
+				}
+				if (i % (e.data.simulations / 50) == 0) {
+					postMessage({
+						progress: i
+					});
+				}
+			}
+			postMessage({
+				rateUps5: rateUps5,
+				rateUps4: rateUps4,
+				others5: others5,
+				atLeastOne5: atLeastOne5,
+				c4: c4,
+				c5: c5
+			});
+		};
+
+		function simulateOne(rolls, pityCounter4, pityCounter5, guaranteedRateUp4, guaranteedRateUp5, pathPoints) {
+			var rateUps5 = 0;
+			var rateUps4 = 0;
+			var others5 = 0;
+			for (var i = 0; i < rolls; i++) {
+				pityCounter4++;
+				pityCounter5++;
+
+				var diceRoll = Math.random();
+				if (diceRoll < chance5(pityCounter5)) {
+					pityCounter5 = 0;
+					if (guaranteedRateUp5 || pathPoints == 2 || Math.random() < 0.75) {
+						guaranteedRateUp5 = false;
+						if (pathPoints == 2 || Math.random() < 0.5) {
+							pathPoints = 0;
+							rateUps5++;
+						} else {
+							others5++;
+							pathPoints++;
+						}
+					} else {
+						others5++;
+						guaranteedRateUp5 = true;
+						pathPoints++;
+					}
+				} else if (diceRoll < chance5(pityCounter5) + chance4(pityCounter4)) {
+					pityCounter4 = 0;
+					if (guaranteedRateUp4 || Math.random() < 0.75) {
+						if (Math.random() < 1/5) {
+							rateUps4++;
+						}
+						guaranteedRateUp4 = false;
+					} else {
+						guaranteedRateUp4 = true;
+					}
+				}
+			}
+			return {
+				rateUps5: rateUps5,
+				rateUps4: rateUps4,
+				others5: others5
+			};
+		}
+
+		function chance5(pityCounter) {
+			if (pityCounter < 63) {
+				return 0.007;
+			} else if (pityCounter < 75) {
+				return 0.007 + (pityCounter - 62) * 0.07;
+			} else if (pityCounter < 80) {
+				return 0.2;
+			}
+			return 1.01;
+		}
+
+		function chance4(pityCounter) {
+			if (pityCounter <= 7) {
+				return 0.06;
+			} else if (pityCounter == 8) {
+				return 0.662;
+			} else if (pityCounter == 9) {
+				return 0.989;
+			}
+			return 1.01;
+		}
+	</script>
+
+	<script>
+		simulations = 1000000;
+
+		var blob = new Blob([
+			document.querySelector('#worker').textContent
+		], { type: "text/javascript" })
+
+		var worker;
+
+		function simulate() {
+			var primogems = Number(document.getElementById("primogems").value);
+			var fates = Number(document.getElementById("fates").value);
+			var pityCounter5 = Number(document.getElementById("pity5").value);
+			var pityCounter4 = Number(document.getElementById("pity4").value);
+			var pathPoints = Number(document.getElementById("pathPoints").value);
+			if (isNaN(primogems) || isNaN(fates) || isNaN(pityCounter5) || isNaN(pityCounter4) || isNaN(pathPoints)) {
+				document.getElementById("progress4").innerHTML = "<p style='color:red'>Invalid inputs</p>";
+				document.getElementById("progress5").innerHTML = "<p style='color:red'>Invalid inputs</p>";
+				return;
+			}
+			
+			var guaranteedRateUp4 = document.getElementById("guaranteed4").checked
+			var guaranteedRateUp5 = document.getElementById("guaranteed5").checked
+
+			if (worker) {
+				worker.terminate();
+			}
+			worker = new Worker(window.URL.createObjectURL(blob));
+			worker.onmessage = update;
+
+			
+			var rolls = primogems / 160 + fates;
+			worker.postMessage({
+				rolls: rolls,
+				pityCounter4: pityCounter4,
+				pityCounter5: pityCounter5,
+				guaranteedRateUp4: guaranteedRateUp4,
+				guaranteedRateUp5: guaranteedRateUp5,
+				pathPoints: pathPoints,
+				simulations: simulations
+			});
+		}
+
+		function update(e) {
+			if (typeof e.data.progress !== 'undefined') {
+				document.getElementById("progress4").innerHTML = "Running simulations. Total progress: " + (e.data.progress * 100 / simulations).toFixed(0) + "%";
+				document.getElementById("progress5").innerHTML = "Running simulations. Total progress: " + (e.data.progress * 100 / simulations).toFixed(0) + "%";
+				return;
+			}
+			document.getElementById("progress4").innerHTML = "Simulation complete";
+			document.getElementById("progress5").innerHTML = "Simulation complete";
+
+			var c5 = e.data.c5;
+			document.getElementById("total5").innerHTML = ((e.data.rateUps5 + e.data.others5) / simulations).toFixed(2);
+			document.getElementById("rateUp5").innerHTML = (e.data.rateUps5 / simulations).toFixed(2);
+			document.getElementById("r15").innerHTML = ((c5[0] + c5[1] + c5[2] + c5[3] + c5[4]) / simulations * 100).toFixed(1) + "%";
+			document.getElementById("r25").innerHTML = ((c5[1] + c5[2] + c5[3] + c5[4]) / simulations * 100).toFixed(1) + "%";
+			document.getElementById("r35").innerHTML = ((c5[2] + c5[3] + c5[4]) / simulations * 100).toFixed(1) + "%";
+			document.getElementById("r45").innerHTML = ((c5[3] + c5[4]) / simulations * 100).toFixed(1) + "%";
+			document.getElementById("r55").innerHTML = ((c5[4]) / simulations * 100).toFixed(1) + "%";
+			
+			var c4 = e.data.c4;
+			console.log(e.data);
+			document.getElementById("any5").innerHTML = (e.data.atLeastOne5 / simulations * 100).toFixed(1) + "%";
+			document.getElementById("r14").innerHTML = ((c4[0] + c4[1] + c4[2] + c4[3] + c4[4]) / simulations * 100).toFixed(1) + "%";
+			document.getElementById("r24").innerHTML = ((c4[1] + c4[2] + c4[3] + c4[4]) / simulations * 100).toFixed(1) + "%";
+			document.getElementById("r34").innerHTML = ((c4[2] + c4[3] + c4[4]) / simulations * 100).toFixed(1) + "%";
+			document.getElementById("r44").innerHTML = ((c4[3] + c4[4]) / simulations * 100).toFixed(1) + "%";
+			document.getElementById("r54").innerHTML = ((c4[4]) / simulations * 100).toFixed(1) + "%";
+		}
+	</script>
+<script type="text/javascript" src="./Genshin Impact Roll Simulator_files/ad-script.js.ダウンロード"></script><script defer="" data-domain="genshinweaponsim.tiiny.site" src="./Genshin Impact Roll Simulator_files/plausible.js.ダウンロード"></script></head>
+
+<body class="bg-light"><div style="position: fixed; bottom: 85px; width: 210px; height: 65px; z-index: 9999;"><a href="https://tiiny.host/?ref=free-site">
+    <div style="color: white; display: flex; align-items: center; padding: 10px">
+      <img height="75" src="./Genshin Impact Roll Simulator_files/ad.png" alt="tiiny.host">
+    </div>
+  </a></div>
+<div class="container">
+<div class="col-md-4">
+	<label for="primogems" class="form-label">Amount of primogems</label>
+	<input type="text" class="form-control w-25" id="primogems" value="0">
+	<label for="fates" class="form-label mt-2">Amount of fates</label>
+	<input type="text" class="form-control w-25" id="fates" value="0">
+	<label for="pity5" class="form-label mt-2">5* pity counter (amount of rolls you made since your last 5*)</label>
+	<input type="text" class="form-control w-25" id="pity5" value="0">
+</div>
+<ul class="nav nav-tabs mt-4" id="myTab" role="tablist">
+	<li class="nav-item" role="presentation">
+		<button class="nav-link active" id="fivestar-tab" data-bs-toggle="tab" data-bs-target="#fivestar" type="button" role="tab" aria-controls="fivestar" aria-selected="true">5* mode</button>
+	</li>
+	<li class="nav-item" role="presentation">
+		<button class="nav-link" id="fourstar-tab" data-bs-toggle="tab" data-bs-target="#fourstar" type="button" role="tab" aria-controls="fourstar" aria-selected="false">4* mode</button>
+	</li>
+</ul>
+<div class="tab-content" id="myTabContent">
+<div class="tab-pane fade show active" id="fivestar" role="tabpanel" aria-labelledby="fivestar-tab">
+	<div class="col-md-4">
+		<div class="form-check mt-2">
+			<input type="checkbox" class="form-check-input" id="guaranteed5">
+			<label class="form-check-label" for="guaranteed5">My next 5* is guaranteed to be a featured weapon</label>
+		</div>
+		<label for="pathPoints" class="form-label mt-2">Epitomized path fate points</label>
+		<input type="text" class="form-control w-25" id="pathPoints" value="0">
+		<button type="button" class="btn btn-primary mt-2" onclick="simulate()">Simulate</button>
+		<div id="progress5" class="mt-2">This page will run 1,000,000 simulations</div>
+	</div>
+	<div class="col-md-6 mt-2">
+		<table class="table">
+			<thead>
+			<tr>
+				<th scope="col">Average number of 5* weapons</th>
+				<th scope="col">Value</th>
+			</tr>
+			</thead>
+			<tbody>
+			<tr>
+				<th scope="row">Specific featured 5*</th>
+				<td id="rateUp5"></td>
+			</tr>
+			<tr>
+				<th scope="row">Any 5*</th>
+				<td id="total5"></td>
+			</tr>
+			</tbody>
+		</table>
+	</div>
+	<div class="col-md-6 mt-2">
+		<table class="table">
+			<thead>
+			<tr>
+				<th scope="col">Chance of getting a specific featured 5* weapon</th>
+				<th scope="col">Value</th>
+			</tr>
+			</thead>
+			<tbody>
+			<tr>
+				<th scope="row">R1+</th>
+				<td id="r15"></td>
+			</tr>
+			<tr>
+				<th scope="row">R2+</th>
+				<td id="r25"></td>
+			</tr>
+			<tr>
+				<th scope="row">R3+</th>
+				<td id="r35"></td>
+			</tr>
+			<tr>
+				<th scope="row">R4+</th>
+				<td id="r45"></td>
+			</tr>
+			<tr>
+				<th scope="row">R5</th>
+				<td id="r55"></td>
+			</tr>
+			</tbody>
+		</table>
+	</div>
+</div>
+<div class="tab-pane fade" id="fourstar" role="tabpanel" aria-labelledby="fourstar-tab">
+	<div class="col-md-4">
+		<label for="pity4" class="form-label mt-2">4* pity counter (amount of rolls you made since your last 4*)</label>
+		<input type="text" class="form-control w-25" id="pity4" value="0">
+		<div class="form-check mt-2">
+			<input type="checkbox" class="form-check-input" id="guaranteed4">
+			<label class="form-check-label" for="guaranteed4">My next 4* is guaranteed to be a featured weapon</label>
+		</div>
+		<button type="button" class="btn btn-primary mt-2" onclick="simulate()">Simulate</button>
+		<div id="progress4" class="mt-2">This page will run 1,000,000 simulations</div>
+	</div>
+	<div class="col-md-6 mt-2">
+		<table class="table">
+			<thead>
+			<tr>
+				<th scope="col">Chance of getting a 5* weapon</th>
+				<th scope="col">Value</th>
+			</tr>
+			</thead>
+			<tbody>
+			<tr>
+				<th scope="row">Any 5*</th>
+				<td id="any5"></td>
+			</tr>
+			</tbody>
+		</table>
+	</div>
+	<div class="col-md-6 mt-2">
+		<table class="table">
+			<thead>
+			<tr>
+				<th scope="col">Chance of getting a specific featured 4* weapon</th>
+				<th scope="col">Value</th>
+			</tr>
+			</thead>
+			<tbody>
+			<tr>
+				<th scope="row">R1+</th>
+				<td id="r14"></td>
+			</tr>
+			<tr>
+				<th scope="row">R2+</th>
+				<td id="r24"></td>
+			</tr>
+			<tr>
+				<th scope="row">R3+</th>
+				<td id="r34"></td>
+			</tr>
+			<tr>
+				<th scope="row">R4+</th>
+				<td id="r44"></td>
+			</tr>
+			<tr>
+				<th scope="row">R5</th>
+				<td id="r54"></td>
+			</tr>
+			</tbody>
+		</table>
+	</div>
+</div>
+</div>
+</div>
+
+
+</body></html>
